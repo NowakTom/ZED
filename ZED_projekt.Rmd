@@ -1,0 +1,23 @@
+---
+title: "ZED_projekt_TN"
+author: "Tomasz Nowak"
+date: '`r format(Sys.Date(), "%d %B, %Y")`'
+output:
+  html_document:
+    toc: true
+    theme: united
+    keep_md: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Opis projektu - streszczenie działa
+
+Tutaj ładnie opiszę wyniki...
+
+
+### Przetwarzanie pustych danych
+
+Tu opisz jak pozbyem si pustych danych
