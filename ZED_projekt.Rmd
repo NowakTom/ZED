@@ -1,23 +1,203 @@
 ---
-title: "ZED_projekt_TN"
+title: "Zaawansowana Eksploracja Danych - projekt"
 author: "Tomasz Nowak"
-date: '`r format(Sys.Date(), "%d %B, %Y")`'
+date: '`r format(Sys.Date(), "%d %b, %Y")`'
 output:
   html_document:
     toc: true
     theme: united
     keep_md: true
+    number_sections: true
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r include=FALSE}
+library(RCurl)
+library(ggplot2)
+library(dplyr)
+library(gplots)
+library(plotly)
+library(heatmaply)
+library(caret)
+library(randomForest)
+library(rpart)
+library(e1071)
+library(shiny)
+```
+```{r cache = TRUE}
+knitr::opts_chunk$set(cache = TRUE)
+data <- read.csv(text=getURL("https://raw.githubusercontent.com/NowakTom/ZED/master/sledzie.csv"), na.strings = "?")
 ```
 
-### Opis projektu - streszczenie działa
+# Analiza problemu
 
-Tutaj ładnie opiszę wyniki...
+Celem projektu jest określenie jakie mogą być główne przyczyny stopniowego zmniejszania się długości śledzi oceanicznych wyławianych w Europie. Zbiór został odpowiednio przygotowany - wartości nieznane zostały usunięte, w ramach przetwarzania regresji i oceny ważności atrybutów opuszczona została zmienna dotycząca liczby porządkowej.
+
+Analiza zbioru wykazała, iż większość paramterów nie posiada rozkładu normalnego. W ramach korelacji można znaleźć silne powiązania pomiędzy zmiennymi (jak np.: powiązanie pomiędzy gatunkami planktonu). 
+
+W ramach określonego regresora przewidywana długość odławianych śledzi będzie w przedziale 24-27cm, co z w stosunku do wartości minimalnej (19cm), mediany (25,5cm) oraz maksymalnej (32,5cm) daje stosunkowo dobry wynik.
+
+Bezpośrednio został zidentyfikowany wpływ temperatury wody na długość odławianych śledzi. W ramach spadku temperatury rośnie długość śledzia - czyt. jeżeli jest niższa temperatura wody, wyławiane ryby są dłuższe niż, gdy temperatura wody jest wyższa. Wpływ na temperaturę wody posiada miesiąc połowu. Na jednym z ostatnich histogramów widać, iż śledzie wyławiane są w ostatnich latach w okolicy środka lipca. W przypadku połowu ryb w okolicach czerwca, temperatura wody jest niższa, a co za tym idzie widać zwiększony rozmiar ryb. Na temperaturę wody wpływ również może mieć Oscylacja Północnoatlantycka, która jest związana z globalną cyrkulacją powietrza i wody oceanicznej. Ujawnia się poprzez przypadkowe wahania takich parametrów, jak ciśnienie, temperatura, prędkość wiatru, ilość opadów
+
+Dane zawierały informacje z okresu 60 lat, w przeciągu którego dynamicznie może zmieniać się klimat, za pośrednictwem, którego wpływa się na temperaturę wody przy powierzchni wody.
+
+# Opis danych
+
+Na przestrzeni ostatnich lat zauważono stopniowy spadek rozmiaru śledzia oceanicznego wyławianego w Europie. Do analizy zebrano pomiary śledzi i warunków w jakich żyją z ostatnich 60 lat. Dane były pobierane z połowów komercyjnych jednostek. W ramach połowu jednej jednostki losowo wybierano od 50 do 100 sztuk trzyletnich śledzi.
+
+ <center>
+Nazwa zmiennej | Opis
+--------| -------------
+length | długość złowionego śledzia [cm]
+cfin1 | dostępność planktonu [zagęszczenie Calanus finmarchicus gat. 1]
+cfin2 | dostępność planktonu [zagęszczenie Calanus finmarchicus gat. 2]
+chel1 | dostępność planktonu [zagęszczenie Calanus helgolandicus gat. 1]
+chel2 | dostępność planktonu [zagęszczenie Calanus helgolandicus gat. 2]
+lcop1 | dostępność planktonu [zagęszczenie widłonogów gat. 1]
+lcop2 | dostępność planktonu [zagęszczenie widłonogów gat. 2]
+fbar | natężenie połowów w regionie [ułamek pozostawionego narybku]
+recr | roczny narybek [liczba śledzi]
+cumf | łączne roczne natężenie połowów w regionie [ułamek pozostawionego narybku]
+totaln | łączna liczba ryb złowionych w ramach połowu [liczba śledzi]
+sst | temperatura przy powierzchni wody [°C]
+sal | poziom zasolenia wody [Knudsen ppt]
+xmonth | miesiąc połowu [numer miesiąca]
+nao | oscylacja północnoatlantycka [mb] 
+</center>
+
+Wiersze w zbiorze są uporządkowane chronologicznie.
+
+# Rozmiar zbioru i podstawowe statystyki
+
+W zbiorze znajduje się 52582 obserwacji rozmieszczonych w 16 kolumnach (kolumna X posiada informacje na temat liczby porządkowej, zostanie użyta później jako chronologiczny punkt odniesienia przy chociażby określeniu zmiany rozmiaru śledzi w czasie).
+
+Wartości puste znajdują się przede wszystkim w kolumnach odpowiedzialnych za informacje odnośnie dostępności planktonu oraz temperatury przy powierzchni wody.
+
+W tabeli znajdują się również informacje odnośnie wartości minimalnych, maksymalnych, średnich oraz medianach dla poszczególnych zmiennych. 
+
+```{r}
+knitr::kable(str(data))
+knitr::kable(summary(data))
+
+```
+
+# Brakujące dane
+
+Brakujące dane w zbiorze podczas zaczytywania pliku zostały zamienione z znaków "?" na "NA". Z racji złożoności zbioru wiersze nie zawierające informacji zostały usunięte, parametry w zbiorze po oczyszczeniu przedstawiały się następująco.
+
+```{r}
+apply(data, 2, function(x) sum(is.na(x)))
+data <- na.omit(data)
+knitr::kable(summary(data))
+```
+
+# Szczegółowa analiza wartości atrybutów
+
+Zbiór, który w ramach analizy jest przetwarzany, posiada duże ilości rekordów. Zastosowanie tutaj zwykłych wykresów liniowych czy punktowych wyświetla dość spiętrzone wyniki, które są bardzo trudne w analizie. Aby zastosować te metody analizy graficznej atrybutów należałoby odpowiednio dane próbkować. Istnieje również inne możliwe przedstawienie informacji o danych, zastosowanie wykresów gęstości, bądź histogramów, które są w stanie określić liczebność zmiennych w poszczególnych przedziałach. W ramach prezentacji atrybutów tymczasowo w zbiorze pominięty został atrybut oznaczający liczbę porządkową.
+
+<center>
+```{r warning=FALSE,message=FALSE}
+data_geom <- select(data,-X)
+for (i in colnames(data_geom)) {print(ggplot(data_geom,aes_string(x = i)) + geom_density(fill = "#0087BD") + ggtitle(i) + theme_bw())
+print(ggplot(data_geom,aes_string(x = i)) + geom_histogram(bins = 50,aes(fill = ..count..)) + scale_fill_gradient("Count", low = "yellow", high = "blue") + ggtitle(i) + theme_bw()) }
+```
+</center>
+
+# Wykres prezentujący zmianę rozmiaru śledzi w czasie
+
+Interaktywny wykres, w którym udział biorą dwie zmienne, liczba porządkowa = X oraz długość śledzia = length. Z racji tego, iż zbiór ustawiony jest chronologicznie, liczba porządkowa jest puntkem odniesienia w czasie.
+
+<center>
+```{r warning=FALSE,message=FALSE}
+sledzie_w_czasie<-ggplot(data,aes(X,length)) + geom_smooth() + theme_bw() + ggtitle("Zmiana rozmiaru śledzi w czasie") + labs(x= "Czas",y="Rozmiar śledzi")
+ggplotly(sledzie_w_czasie)
+
+```
+</center>
+
+# Korelacja między zmiennymi
+
+Z powyższych wykresów gęstości poszczególnych zmiennych można wyciągnąć wnioski, iż dane w zbiorze (poza zmienną length) nie posiadają normalnego rozkładu. Dodatkowo niektóre dane są bardziej odległe od innych w ramach pojedyńczego zbioru. Wobec powyższych wniosków korelacja została wykonana metodą Spearman'a.
+
+<center>
+```{r cache = TRUE}
+korelacja <- cor(data, method = "spearman")
+heatmaply(korelacja, k_col = 2, k_row = 3) %>% layout(margin = list(l = 130, b = 40))
+```
+</center>
+
+# Regresor przewidujący rozmiar śledzia
+
+Sekcja ta zawiera tworzenie regresora, który ma za zadanie przewidzieć rozmiary kolejnych, wyławianych śledzi. Dokonywana jest próba predykcji zmiennej ilościowej - length. Współczynnik determinacji jest na stosunkowo niskim poziomie (<0,5) co bezpośrednio wskazuje na niskie dopasowanie regresji do zbioru danych. W zbiorze pominięty został atrybut oznaczający liczbę porządkową.Dane zostały podzielone na dwie części: zbiór uczący i zbiór testowy. Uczenie odbyło się metodą powtórzonej oceny krzyżowej 2 podziałami z 5 powtórzeniami. Finalnie Utworzony zostaje model klasyfikacyjny zgodnie z algorytmem Random Forest. Rozkład przewidzianych wartości został przestawiony na histogramie.
+
+```{r cache = TRUE}
+fit_lm<-select(data,-X)
+fit_lm <- lm(length ~ ., fit_lm)
+summary(fit_lm)
+summary(fit_lm)$r.squared 
+
+RMSE <- function(num) sqrt(sum(num^2)/length(num))
+RMSE(fit_lm$residuals)
+
+inTraining <- 
+    createDataPartition(
+        y = data$length,
+        p = .75,
+        list = FALSE)
+
+training <- data[ inTraining,]
+testing  <- data[-inTraining,]
+
+ctrl <- trainControl(
+    method = "repeatedcv",
+    number = 2,
+    repeats = 5)
+set.seed(23)
+fit <- train(length ~ .,
+             data = training,
+             method = "rf",
+             trControl = ctrl,
+             ntree = 2)
+fit
+
+rfClasses <- predict(fit, newdata = testing)
+summary(rfClasses)
+```
+<center>
+```{r}
+df<-data.frame(rfClasses)
+ggplot(df,aes_string(x = rfClasses)) + geom_histogram(bins=100, fill = "#0087BD")  + ggtitle("Przewidywany rozmiar śledzia") + theme_bw() + labs(x= "Rozmiar śledzi",y="Liczba")
+```
+<center>
+
+# Analiza ważności atrybutów
+
+Analiza ważności atrybutów oparta została o algorytm Random Forest. W wyniku bezpośrednio widać znaczącą przewagę ważności zmiennej sst - temperatura przy powierzchni wody, która wpływa na zmienną length - długość złowionego śledzia. Pomiędzy zmienną length, a sst widać liniową zależność.  
+
+```{r cache = TRUE}
+fit_RF<-select(data,-X)
+fit_RF <- randomForest(length ~ ., fit_RF)
+print(fit_RF)
+fit_RF
+fit_importance <- importance(fit_RF)
+fit_importance <- data.frame(zmienna = rownames(fit_importance), waznosc = fit_importance[, 1])
+fit_importance$zmienna <- factor(fit_importance$zmienna, levels = fit_importance[order(fit_importance$waznosc), "zmienna"])
+set.seed(42)
+```
+<center>
+```{r}
+ggplot(fit_importance, aes(x = zmienna, y = waznosc)) + geom_bar(stat = "identity", fill = "#0087BD") + ggtitle("Ważność zmiennych") + theme_bw()
+```
+
+```{r message=FALSE}
+ggplot(data, aes(x = length, y = sst)) + geom_smooth(method = "lm") + ggtitle("Zależność długości śledzia od temperatury przy powierzchni wody") + theme_bw()
+
+ggplot(data,aes(X,sst)) + geom_smooth() + theme_bw() + ggtitle("Zmiana temperatury wody w czasie") + labs(x= "Czas",y="Temperatura[°C]")
+
+ggplot(data,aes(X,xmonth)) + geom_smooth() + theme_bw() + ggtitle("Zmiana miesiąca połowu w czasie") + labs(x= "Czas",y="Miesiąc połowu")
+
+ggplot(data,aes(X,nao)) + geom_smooth() + theme_bw() + ggtitle("Zmiana Oscylacji Północnoatlantyckiej") + labs(x= "Czas",y="Oscylacja Północnoatlantycka")
+
+```
+</center>
 
 
-### Przetwarzanie pustych danych
-
-Tu opisz jak pozbyem si pustych danych
