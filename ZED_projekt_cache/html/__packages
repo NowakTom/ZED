@@ -1,0 +1,15 @@
+base
+bitops
+RCurl
+ggplot2
+dplyr
+gplots
+plotly
+viridis
+heatmaply
+lattice
+caret
+randomForest
+rpart
+e1071
+shiny
